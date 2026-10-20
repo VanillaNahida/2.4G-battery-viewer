@@ -54,6 +54,28 @@ def apply_process_app_id() -> bool:
         return False
 
 
+def app_icon_path() -> str:
+    """任务栏 / 通知图标要用的图标文件。
+
+    Windows 是按「AUMID 对应的开始菜单快捷方式」来决定任务栏按钮和通知图标的，
+    所以快捷方式里的图标必须是我们自己的 logo：
+      * 打包后直接用 exe —— logo 已经嵌进 exe 的资源，exe 路径也稳定；
+      * 源码运行时用项目里的 assets/logo.ico —— 否则快捷方式会退回去用
+        python.exe 的图标（就是那只 Python 图标）。
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.abspath(sys.executable)
+    try:
+        from device_battery.core.paths import ASSETS_DIR
+
+        ico = os.path.join(str(ASSETS_DIR), "logo.ico")
+        if os.path.exists(ico):
+            return ico
+    except Exception:
+        pass
+    return ""
+
+
 def ensure_app_id(log: Optional[Callable[[str], None]] = None) -> bool:
     """注册通知身份（进程 AUMID + 开始菜单快捷方式），只做一次。"""
     global _registered
@@ -68,16 +90,33 @@ def ensure_app_id(log: Optional[Callable[[str], None]] = None) -> bool:
         from device_battery.core import autostart, win_shell
 
         lnk = os.path.join(win_shell.programs_dir(), SHORTCUT_NAME)
-        if not win_shell.shortcut_exists(lnk):
-            target = autostart.launcher_target()
+        target = autostart.launcher_target()
+        arguments = autostart.launcher_arguments()
+        icon = app_icon_path() or target
+
+        # 旧版本只在「快捷方式不存在」时才写：源码跑过一次之后它就一直指着
+        # python.exe（图标是 Python 的），之后哪怕换成打包版，任务栏和通知
+        # 图标还是那个 —— 所以这里改成「内容对不上就重写」。
+        current = win_shell.read_shortcut(lnk)
+        same = bool(
+            current
+            and os.path.normcase(os.path.abspath(current.get("target", "")))
+            == os.path.normcase(os.path.abspath(target))
+            and (current.get("arguments") or "").strip() == arguments.strip()
+            and os.path.normcase(current.get("icon") or "")
+            == os.path.normcase(icon)
+        )
+        if not same:
             ok = win_shell.create_shortcut(
                 lnk, target,
-                arguments=autostart.launcher_arguments(),
+                arguments=arguments,
                 workdir=str(autostart.BASE_DIR),
                 description="设备电量监视器",
-                icon=target,
+                icon=icon,
                 app_id=AUMID,
             ) and ok
+            if log:
+                log(f"通知身份快捷方式已更新：{lnk}（图标 {icon}）")
     except Exception as e:
         if log:
             log(f"注册通知身份失败：{e}")

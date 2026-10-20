@@ -6,7 +6,7 @@
   * tray.multi_icon=true 且集合里多于一个设备 -> 每个设备一个图标
   * 否则只用一个图标，显示集合里电量最低的那个设备，悬停里列出全部
 
-交互：左键单击 = 立即刷新；双击 = 打开主界面；右键 = 菜单。
+交互：左键单击 = 显示 / 隐藏主界面（显示时置前）；双击 = 打开主界面；右键 = 菜单。
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ class SystemTray(QObject):
     """托盘图标集合。"""
 
     open_ui = pyqtSignal()
+    toggle_ui = pyqtSignal()      # 左键单击：显示 / 隐藏主界面
     refresh_now = pyqtSignal()
     open_settings = pyqtSignal()
     quit_app = pyqtSignal()
@@ -154,7 +155,8 @@ class SystemTray(QObject):
         if reason == QSystemTrayIcon.DoubleClick:
             self.open_ui.emit()
         elif reason == QSystemTrayIcon.Trigger:
-            self.refresh_now.emit()
+            # 单击 = 显示/隐藏主界面（隐藏后托盘图标还在，再点就能拉回来）
+            self.toggle_ui.emit()
 
     def _render(self) -> None:
         mode = self._cfg.get("tray", {}).get("mode", "number")

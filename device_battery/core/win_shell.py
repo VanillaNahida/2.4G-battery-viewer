@@ -251,6 +251,14 @@ def read_shortcut(lnk_path: str) -> dict:
             out["target"] = text(3, 4)                               # GetPath
             out["arguments"] = text(10, 2)                           # GetArguments
             out["workdir"] = text(8, 2)                              # GetWorkingDirectory
+
+            icon_buf = ctypes.create_unicode_buffer(1024)
+            icon_index = ctypes.c_int(0)
+            _call(v, 16, [wintypes.LPWSTR, ctypes.c_int,
+                          POINTER(ctypes.c_int)], punk,
+                  icon_buf, 1024, byref(icon_index))                 # GetIconLocation
+            out["icon"] = icon_buf.value
+            out["icon_index"] = icon_index.value
         finally:
             _release(pf)
     finally:

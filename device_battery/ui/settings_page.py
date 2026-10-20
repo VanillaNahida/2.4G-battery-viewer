@@ -81,6 +81,28 @@ def _switch(container: QWidget, checked: bool, on_change) -> SwitchButton:
     return sw
 
 
+class _AutoSpin(SpinBox):
+    """数字微调框：宽度随字体 / DPI 自动适配。
+
+    之前统一 setFixedWidth(120) 是数字被遮挡的原因：这 120px 里要同时放下
+    「100 %」这段文字和右侧并列的两个上下按钮（各约 31px），字体一大就挤没了。
+    这里按当前字体的实际字宽重算，并给一个不会太窄的下限。
+    """
+
+    MIN_WIDTH = 150
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        fm = self.fontMetrics()
+        margins = self.hBoxLayout.contentsMargins()
+        overhead = (margins.left() + margins.right()
+                    + 2 * self.hBoxLayout.spacing()
+                    + self.upButton.width() + self.downButton.width())
+        needed = fm.horizontalAdvance(self.text()) + overhead + 16  # 16 = 文字左右留白
+        hint.setWidth(max(self.MIN_WIDTH, hint.width(), needed))
+        return hint
+
+
 def _lookup_index(choices, value) -> int:
     """找不到返回 -1（和「系统默认」的下标 0 区分开）。"""
     for index, (candidate, _label) in enumerate(choices):
@@ -222,21 +244,19 @@ class SettingsPage(QWidget):
 
         line = _row(g, "橙黄色阈值",
                     "电量小于等于该值时，环和数字变成橙黄色（%）")
-        self._orange_spin = SpinBox(g)
+        self._orange_spin = _AutoSpin(g)
         self._orange_spin.setRange(2, 100)
         self._orange_spin.setValue(orange)
         self._orange_spin.setSuffix(" %")
-        self._orange_spin.setFixedWidth(120)
         self._orange_spin.valueChanged.connect(self._on_orange_threshold)
         line.addWidget(self._orange_spin, 0, Qt.AlignRight | Qt.AlignVCenter)
 
         line = _row(g, "红色阈值",
                     "电量小于等于该值时变红（%），必须小于橙黄色阈值")
-        self._red_spin = SpinBox(g)
+        self._red_spin = _AutoSpin(g)
         self._red_spin.setRange(1, 99)
         self._red_spin.setValue(red)
         self._red_spin.setSuffix(" %")
-        self._red_spin.setFixedWidth(120)
         self._red_spin.valueChanged.connect(self._on_red_threshold)
         line.addWidget(self._red_spin, 0, Qt.AlignRight | Qt.AlignVCenter)
 
@@ -295,18 +315,16 @@ class SettingsPage(QWidget):
                        Qt.AlignRight | Qt.AlignVCenter)
 
         line = _row(g, "全局阈值", "低于该电量时提醒（%）")
-        spin = SpinBox(g)
+        spin = _AutoSpin(g)
         spin.setRange(1, 100)
         spin.setValue(int(notify.get("threshold", 20)))
-        spin.setFixedWidth(120)
         spin.valueChanged.connect(lambda v: self._set_notify("threshold", int(v)))
         line.addWidget(spin, 0, Qt.AlignRight | Qt.AlignVCenter)
 
         line = _row(g, "冷却时间", "同一设备在这段时间内不重复提醒（分钟）")
-        spin = SpinBox(g)
+        spin = _AutoSpin(g)
         spin.setRange(1, 24 * 60)
         spin.setValue(int(notify.get("cooldown_minutes", 30)))
-        spin.setFixedWidth(120)
         spin.valueChanged.connect(
             lambda v: self._set_notify("cooldown_minutes", int(v)))
         line.addWidget(spin, 0, Qt.AlignRight | Qt.AlignVCenter)
@@ -326,10 +344,9 @@ class SettingsPage(QWidget):
         g.layout().addWidget(self._sound_label)
 
         line = _row(g, "音量（%）")
-        spin = SpinBox(g)
+        spin = _AutoSpin(g)
         spin.setRange(0, 100)
         spin.setValue(int(notify.get("volume", 70)))
-        spin.setFixedWidth(120)
         spin.valueChanged.connect(lambda v: self._set_notify("volume", int(v)))
         line.addWidget(spin, 0, Qt.AlignRight | Qt.AlignVCenter)
 
@@ -500,10 +517,9 @@ class SettingsPage(QWidget):
                                lambda v, k=key: self._set_device(k, enabled=v)),
                        0, Qt.AlignVCenter)
 
-        spin = SpinBox(box)
+        spin = _AutoSpin(box)
         spin.setRange(1, 100)
         spin.setValue(int(eff["threshold"]))
-        spin.setFixedWidth(120)
         spin.setSuffix(" %")
         spin.valueChanged.connect(
             lambda v, k=key: self._set_device(k, threshold=int(v)))

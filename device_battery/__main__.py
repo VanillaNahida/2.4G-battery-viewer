@@ -85,6 +85,35 @@ def _cmd_quit() -> int:
 # --------------------------------------------------------------------------
 # 图形界面模式
 # --------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# 主窗口的显示 / 隐藏（托盘单击用）
+# --------------------------------------------------------------------------
+def bring_to_front(window) -> None:
+    """显示主窗口并置前（从隐藏 / 最小化状态都能拉回来）。"""
+    if window.isMinimized():
+        window.showNormal()
+    else:
+        window.show()
+    window.raise_()
+    window.activateWindow()
+
+
+def toggle_window_visibility(window) -> None:
+    """单击托盘图标：显示 / 隐藏主窗口。
+
+    三种情况分开处理，避免"想置前却被收起来"：
+      * 没显示 / 已最小化  -> 显示并置前
+      * 已经在最前（有焦点）-> 隐藏到托盘
+      * 显示着但在后面      -> 置前，不隐藏
+    """
+    if not window.isVisible() or window.isMinimized():
+        bring_to_front(window)
+    elif window.isActiveWindow():
+        window.hide()
+    else:
+        bring_to_front(window)
+
+
 def _run_gui(minimized: bool, debug: bool) -> int:
     from .core import dpi
 
@@ -117,10 +146,12 @@ def _run_gui(minimized: bool, debug: bool) -> int:
         logo = ASSETS_DIR / "logo.png"
     if logo.exists():
         app.setWindowIcon(QIcon(str(logo)))
-    # 任务栏 / 通知身份（和开始菜单快捷方式用同一个 AUMID）
+    # 任务栏 / 通知身份（和开始菜单快捷方式用同一个 AUMID）。
+    # Windows 拿这个快捷方式的图标当任务栏按钮和通知的图标，所以启动时
+    # 顺手核对一遍：快捷方式过期（比如曾经从源码跑过）会导致显示 Python 图标。
     try:
         from .notify import toast
-        toast.apply_process_app_id()
+        toast.ensure_app_id(log=None)
     except Exception:
         pass
 
@@ -165,9 +196,10 @@ def _run_gui(minimized: bool, debug: bool) -> int:
     poller = Poller(int(cfg.get("interval", 60)), log=log)
 
     def show_window() -> None:
-        window.show()
-        window.raise_()
-        window.activateWindow()
+        bring_to_front(window)
+
+    def toggle_window() -> None:
+        toggle_window_visibility(window)
 
 
     def quit_app() -> None:
@@ -208,6 +240,7 @@ def _run_gui(minimized: bool, debug: bool) -> int:
 
     tray.tray_mode_changed.connect(set_tray_mode)
     tray.open_ui.connect(show_window)
+    tray.toggle_ui.connect(toggle_window)
     tray.refresh_now.connect(poller.refresh)
     tray.open_settings.connect(lambda: (show_window(), window.show_settings()))
     tray.quit_app.connect(quit_app)
