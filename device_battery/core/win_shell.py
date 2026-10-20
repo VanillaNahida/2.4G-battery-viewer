@@ -37,9 +37,17 @@ class GUID(ctypes.Structure):
 CLSID_SHELLLINK = GUID("{00021401-0000-0000-C000-000000000046}")
 IID_ISHELLLINKW = GUID("{000214F9-0000-0000-C000-000000000046}")
 IID_IPERSISTFILE = GUID("{0000010b-0000-0000-C000-000000000046}")
+IID_IPROPERTYSTORE = GUID("{886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99}")
+
+# PKEY_AppUserModel_ID {9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}, 5
+# 桌面应用要靠它把自己和「通知」里的应用身份对上，否则 toast 会被系统丢掉。
+PKEY_APP_USER_MODEL_ID = GUID("{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}")
+APP_USER_MODEL_PID = 5
+VT_LPWSTR = 31
 
 FOLDERID_Desktop = GUID("{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}")
 FOLDERID_Startup = GUID("{B97D20BB-F46A-4C97-BA10-5E3608430854}")
+FOLDERID_Programs = GUID("{A77F5D77-2E2B-44C3-A6A2-ABA601054A51}")
 
 CLSCTX_INPROC_SERVER = 1
 STGM_READ = 0x00000000
@@ -84,6 +92,14 @@ def startup_dir() -> str:
                      "Start Menu", "Programs", "Startup"))
 
 
+def programs_dir() -> str:
+    """开始菜单的「程序」文件夹（快捷方式放这里才能注册通知身份）。"""
+    return _known_folder(
+        FOLDERID_Programs,
+        os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows",
+                     "Start Menu", "Programs"))
+
+
 # --------------------------------------------------------------------------
 # COM 小工具
 # --------------------------------------------------------------------------
@@ -108,9 +124,44 @@ def _release(this: ctypes.c_void_p) -> None:
 # --------------------------------------------------------------------------
 # 快捷方式
 # --------------------------------------------------------------------------
+class PROPVARIANT(ctypes.Structure):
+    """只够装 VT_LPWSTR 的 PROPVARIANT（x64 下头 8 字节 + 指针）。"""
+    _fields_ = [("vt", wintypes.USHORT),
+                ("wReserved1", wintypes.USHORT),
+                ("wReserved2", wintypes.USHORT),
+                ("wReserved3", wintypes.USHORT),
+                ("pwszVal", ctypes.c_wchar_p)]
+
+
+class PROPERTYKEY(ctypes.Structure):
+    _fields_ = [("fmtid", GUID), ("pid", wintypes.DWORD)]
+
+
+def _set_app_id(punk, app_id: str) -> bool:
+    """给 .lnk 写 System.AppUserModel.ID（通知身份就靠它）。"""
+    pps = ctypes.c_void_p()
+    hr = _call(_vtbl(punk), 0, [POINTER(GUID), POINTER(ctypes.c_void_p)], punk,
+               byref(IID_IPROPERTYSTORE), byref(pps))
+    if hr < 0 or not pps:
+        return False
+    try:
+        key = PROPERTYKEY(PKEY_APP_USER_MODEL_ID, APP_USER_MODEL_PID)
+        value = PROPVARIANT()
+        value.vt = VT_LPWSTR
+        value.pwszVal = app_id
+        vps = _vtbl(pps)
+        hr = _call(vps, 6, [POINTER(PROPERTYKEY), POINTER(PROPVARIANT)], pps,
+                   byref(key), byref(value))                      # SetValue
+        if hr < 0:
+            return False
+        return _call(vps, 7, [], pps) >= 0                         # Commit
+    finally:
+        _release(pps)
+
+
 def create_shortcut(lnk_path: str, target: str, arguments: str = "",
                     workdir: str = "", description: str = "",
-                    icon: str = "") -> bool:
+                    icon: str = "", app_id: str = "") -> bool:
     """创建 .lnk 快捷方式。返回是否成功（成功后会自动读回校验）。"""
     lnk_path = os.path.abspath(lnk_path)
     os.makedirs(os.path.dirname(lnk_path), exist_ok=True)
@@ -135,6 +186,8 @@ def create_shortcut(lnk_path: str, target: str, arguments: str = "",
         if icon:
             _call(v, 17, [wintypes.LPCWSTR, ctypes.c_int], punk,
                   icon, 0)                                          # SetIconLocation
+        if app_id:
+            _set_app_id(punk, app_id)
 
         pf = ctypes.c_void_p()
         hr = _call(v, 0, [POINTER(GUID), POINTER(ctypes.c_void_p)], punk,

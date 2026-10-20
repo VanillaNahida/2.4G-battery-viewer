@@ -86,9 +86,18 @@ def _cmd_quit() -> int:
 # 图形界面模式
 # --------------------------------------------------------------------------
 def _run_gui(minimized: bool, debug: bool) -> int:
+    from .core import dpi
+
+    # 必须在创建 QApplication 之前：声明 DPI 感知 + 打开 Qt 的高 DPI 缩放
+    dpi.enable_dpi_awareness()
+    dpi.enable_high_dpi_scaling()
+
     from PyQt5.QtWidgets import QApplication
 
+    from .core import fonts as fontmod
+    from .notify import toast
     from .notify.manager import NotifyManager
+    from .tray import icon_render
     from .tray.poller import Poller
     from .tray.system_tray import SystemTray
     from .ui.main_window import MainWindow
@@ -97,6 +106,23 @@ def _run_gui(minimized: bool, debug: bool) -> int:
     app = QApplication([sys.argv[0]])
     app.setApplicationName("设备电量")
     app.setQuitOnLastWindowClosed(False)       # 关窗口不退出（默认挂到托盘）
+
+    # 程序 / 窗口 / 任务栏图标用 assets/logo.ico（托盘图标另算，见 tray/icon_render）
+    from PyQt5.QtGui import QIcon
+
+    from .core.paths import ASSETS_DIR
+
+    logo = ASSETS_DIR / "logo.ico"
+    if not logo.exists():
+        logo = ASSETS_DIR / "logo.png"
+    if logo.exists():
+        app.setWindowIcon(QIcon(str(logo)))
+    # 任务栏 / 通知身份（和开始菜单快捷方式用同一个 AUMID）
+    try:
+        from .notify import toast
+        toast.apply_process_app_id()
+    except Exception:
+        pass
 
     def log(msg: str) -> None:
         if debug:
@@ -110,10 +136,22 @@ def _run_gui(minimized: bool, debug: bool) -> int:
         return 0
 
     cfg = cfgmod.load()
+
+    # 字体：先注册（MiSans 默认 + 用户加载的字体文件），再应用界面字体
+    fontmod.load_default_fonts()
+    fontmod.load_extra_fonts(cfgmod.extra_font_files(cfg))
+    applied_font = cfgmod.ui_font(cfg)
+    fontmod.apply_ui_font(applied_font)
+    icon_render.set_font_family(
+        fontmod.icon_font_family(cfgmod.tray_font(cfg)))
+    icon_render.set_level_thresholds(*cfgmod.level_thresholds(cfg))
+
     apply_theme(cfg.get("theme", "auto"))
 
     notify_mgr = NotifyManager(cfg, log)
     tray = SystemTray(cfg, log=log)
+    # 系统通知走托盘气泡（带 info 图标），需要拿一个可见的托盘图标
+    toast.set_tray_provider(tray.notify_icon)
 
     # 回调用字典持有，主程序稍后填好，界面/设置页在运行时取
     hooks = {"config_changed": lambda c: None, "refresh": lambda: None}
@@ -121,6 +159,7 @@ def _run_gui(minimized: bool, debug: bool) -> int:
         cfg, hooks,
         test_alert=notify_mgr.test_alert,
         preview_sound=notify_mgr.preview_sound,
+        test_notify=notify_mgr.test_notification,
         log=log,
     )
     poller = Poller(int(cfg.get("interval", 60)), log=log)
@@ -130,6 +169,7 @@ def _run_gui(minimized: bool, debug: bool) -> int:
         window.raise_()
         window.activateWindow()
 
+
     def quit_app() -> None:
         log("退出")
         poller.stop()
@@ -137,11 +177,19 @@ def _run_gui(minimized: bool, debug: bool) -> int:
         app.quit()
 
     def on_config_changed(new_cfg: dict) -> None:
+        nonlocal applied_font
         apply_theme(new_cfg.get("theme", "auto"))
+        icon_render.set_level_thresholds(*cfgmod.level_thresholds(new_cfg))
         poller.set_interval(int(new_cfg.get("interval", 60)))
         tray.apply_config(new_cfg)
         notify_mgr.apply_config(new_cfg)
         window.apply_config(new_cfg)
+
+        wanted = cfgmod.ui_font(new_cfg)
+        if wanted != applied_font:
+            fontmod.load_extra_fonts(cfgmod.extra_font_files(new_cfg))
+            fontmod.apply_ui_font(wanted)
+            applied_font = wanted
 
     hooks["config_changed"] = on_config_changed
     hooks["refresh"] = poller.refresh
@@ -152,6 +200,13 @@ def _run_gui(minimized: bool, debug: bool) -> int:
         notify_mgr.handle(readings)
 
     poller.resultsReady.connect(on_results)
+    def set_tray_mode(mode: str) -> None:
+        cfg.setdefault("tray", {})["mode"] = mode
+        cfgmod.save(cfg)
+        on_config_changed(cfg)
+        log(f"托盘图标形态切换为 {mode}")
+
+    tray.tray_mode_changed.connect(set_tray_mode)
     tray.open_ui.connect(show_window)
     tray.refresh_now.connect(poller.refresh)
     tray.open_settings.connect(lambda: (show_window(), window.show_settings()))
@@ -168,7 +223,25 @@ def _run_gui(minimized: bool, debug: bool) -> int:
 
 
 # --------------------------------------------------------------------------
+class _NullStream:
+    """打包成 --noconsole 的 exe 时 sys.stdout 是 None，挡住 print 的异常。"""
+
+    def write(self, *_args) -> int:
+        return 0
+
+    def flush(self) -> None:
+        return None
+
+
+def _guard_stdio() -> None:
+    if sys.stdout is None:
+        sys.stdout = _NullStream()
+    if sys.stderr is None:
+        sys.stderr = _NullStream()
+
+
 def main(argv: Optional[list] = None) -> int:
+    _guard_stdio()
     parser = argparse.ArgumentParser(description="设备电量：2.4G 外设 + 蓝牙设备")
     parser.add_argument("--once", action="store_true", help="命令行读一次并退出")
     parser.add_argument("--bluetooth", action="store_true", help="只列出蓝牙设备")

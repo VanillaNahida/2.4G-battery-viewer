@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import ctypes
 import re
+import sys
 from ctypes import wintypes
 from typing import Optional
 
@@ -152,8 +153,111 @@ def classify(name: str) -> str:
     return KIND_OTHER
 
 
+# --------------------------------------------------------------------------
+# 连接状态：Windows 会把「已配对」设备的电量属性一直留着，
+# 只有 bthprops 的 fConnected 才反映「现在到底连没连」。
+# --------------------------------------------------------------------------
+BLUETOOTH_MAX_NAME_SIZE = 248
+_bth = None
+
+
+class _SYSTEMTIME(ctypes.Structure):
+    _fields_ = [("wYear", wintypes.WORD), ("wMonth", wintypes.WORD),
+                ("wDayOfWeek", wintypes.WORD), ("wDay", wintypes.WORD),
+                ("wHour", wintypes.WORD), ("wMinute", wintypes.WORD),
+                ("wSecond", wintypes.WORD), ("wMilliseconds", wintypes.WORD)]
+
+
+class _BLUETOOTH_ADDRESS(ctypes.Structure):
+    _fields_ = [("ullLong", ctypes.c_ulonglong)]
+
+
+class _BLUETOOTH_DEVICE_INFO(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD),
+        ("Address", _BLUETOOTH_ADDRESS),
+        ("ulClassofDevice", wintypes.ULONG),
+        ("fConnected", wintypes.BOOL),
+        ("fRemembered", wintypes.BOOL),
+        ("fAuthenticated", wintypes.BOOL),
+        ("stLastSeen", _SYSTEMTIME),
+        ("stLastUsed", _SYSTEMTIME),
+        ("szName", wintypes.WCHAR * BLUETOOTH_MAX_NAME_SIZE),
+    ]
+
+
+class _BLUETOOTH_DEVICE_SEARCH_PARAMS(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD),
+        ("fReturnAuthenticated", wintypes.BOOL),
+        ("fReturnRemembered", wintypes.BOOL),
+        ("fReturnUnknown", wintypes.BOOL),
+        ("fReturnConnected", wintypes.BOOL),
+        ("fIssueInquiry", wintypes.BOOL),
+        ("cTimeoutMultiplier", ctypes.c_ubyte),
+        ("hRadio", wintypes.HANDLE),
+    ]
+
+
+def connection_states() -> Optional[dict[str, bool]]:
+    """已配对蓝牙设备的连接状态 {MAC(12 位小写): 是否已连接}。
+
+    查询不可用（不是 Windows / 蓝牙服务没起）时返回 None，
+    调用方据此**不做**任何过滤，避免把设备全藏了。
+    """
+    global _bth
+    if sys.platform != "win32":
+        return None
+    try:
+        if _bth is None:
+            _bth = ctypes.WinDLL("bthprops.cpl", use_last_error=True)
+            _bth.BluetoothFindFirstDevice.restype = wintypes.HANDLE
+            _bth.BluetoothFindFirstDevice.argtypes = [
+                ctypes.POINTER(_BLUETOOTH_DEVICE_SEARCH_PARAMS),
+                ctypes.POINTER(_BLUETOOTH_DEVICE_INFO)]
+            _bth.BluetoothFindNextDevice.restype = wintypes.BOOL
+            _bth.BluetoothFindNextDevice.argtypes = [
+                wintypes.HANDLE, ctypes.POINTER(_BLUETOOTH_DEVICE_INFO)]
+            _bth.BluetoothFindDeviceClose.restype = wintypes.BOOL
+            _bth.BluetoothFindDeviceClose.argtypes = [wintypes.HANDLE]
+
+        params = _BLUETOOTH_DEVICE_SEARCH_PARAMS()
+        params.dwSize = ctypes.sizeof(_BLUETOOTH_DEVICE_SEARCH_PARAMS)
+        params.fReturnAuthenticated = True
+        params.fReturnRemembered = True
+        params.fReturnUnknown = False
+        params.fReturnConnected = True
+        params.fIssueInquiry = False          # 不做查询，马上返回
+        params.cTimeoutMultiplier = 2
+        params.hRadio = None
+
+        info = _BLUETOOTH_DEVICE_INFO()
+        info.dwSize = ctypes.sizeof(_BLUETOOTH_DEVICE_INFO)
+
+        handle = _bth.BluetoothFindFirstDevice(ctypes.byref(params),
+                                               ctypes.byref(info))
+        if not handle:
+            return None
+        states: dict[str, bool] = {}
+        try:
+            while True:
+                mac = "%012x" % info.Address.ullLong
+                states[mac] = bool(info.fConnected)
+                if not _bth.BluetoothFindNextDevice(handle, ctypes.byref(info)):
+                    break
+        finally:
+            _bth.BluetoothFindDeviceClose(handle)
+        return states
+    except Exception:
+        return None
+
+
 def _scan_nodes() -> list[tuple[str, str, Optional[int], bool]]:
-    """扫描所有蓝牙相关节点，返回 [(实例ID, 名称, 电量, 属性存在)]。"""
+    """扫描所有蓝牙相关节点，返回 [(实例ID, 名称, 电量, 属性存在)]。
+
+    只保留**当前真的连着**的设备：Windows 对已配对但断开的设备仍然保留
+    电量属性（缓存的旧值），只靠属性会把没开机的耳机当在线。
+    """
     attempts = (
         (None, None, DIGCF_ALLCLASSES),
         ("BTHENUM", None, 0),
@@ -161,6 +265,7 @@ def _scan_nodes() -> list[tuple[str, str, Optional[int], bool]]:
         (None, CLASS_BLUETOOTH, 0),
         (None, CLASS_SYSTEM, 0),
     )
+    states = connection_states()
     seen: dict[str, tuple[str, str, Optional[int], bool]] = {}
     for enumerator, class_guid, flags in attempts:
         hdev = setupapi.SetupDiGetClassDevsW(
@@ -183,6 +288,9 @@ def _scan_nodes() -> list[tuple[str, str, Optional[int], bool]]:
                     continue
                 if not iid.upper().startswith(BT_PREFIXES):
                     continue
+                addr = bluetooth_address(iid)
+                if states is not None and addr and states.get(addr) is False:
+                    continue        # 已配对但没连上：跳过
                 name = (_device_string(hdev, info, SPDRP_FRIENDLYNAME)
                         or _device_string(hdev, info, SPDRP_DEVICEDESC))
                 level, has = _read_battery(hdev, info)

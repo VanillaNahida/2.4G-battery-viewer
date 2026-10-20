@@ -15,7 +15,7 @@ import time
 from typing import Callable, Optional
 
 from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtWidgets import QAction, QMenu, QSystemTrayIcon
+from PyQt5.QtWidgets import (QAction, QActionGroup, QMenu, QSystemTrayIcon)
 
 from device_battery.devices import Reading, charging_text
 
@@ -34,6 +34,7 @@ class SystemTray(QObject):
     refresh_now = pyqtSignal()
     open_settings = pyqtSignal()
     quit_app = pyqtSignal()
+    tray_mode_changed = pyqtSignal(str)      # 菜单里切换图标形态
 
     def __init__(self, cfg: dict, log: Optional[Callable[[str], None]] = None,
                  parent: QObject = None):
@@ -42,15 +43,32 @@ class SystemTray(QObject):
         self._log = log
         self._icons: dict[str, QSystemTrayIcon] = {}
         self._readings: list[Reading] = []
+        self._apply_font()
 
     # ---- 对外 ---------------------------------------------------------
     def apply_config(self, cfg: dict) -> None:
         self._cfg = cfg
+        self._apply_font()
         self._render()
+
+    def _apply_font(self) -> None:
+        """托盘图标里的数字字体（可在设置里单独配置）。"""
+        from device_battery.core import config as cfgmod
+        from device_battery.core import fonts as fontmod
+
+        family = fontmod.icon_font_family(cfgmod.tray_font(self._cfg))
+        icon_render.set_font_family(family)
 
     def update(self, readings: list[Reading]) -> None:
         self._readings = readings
         self._render()
+
+    def notify_icon(self) -> Optional[QSystemTrayIcon]:
+        """给系统通知用一个可见的托盘图标（Windows 通知靠它冒气泡）。"""
+        for icon in self._icons.values():
+            if icon.isVisible():
+                return icon
+        return None
 
     def cleanup(self) -> None:
         for icon in self._icons.values():
@@ -60,11 +78,16 @@ class SystemTray(QObject):
 
     # ---- 内部 ---------------------------------------------------------
     def _tray_devices(self) -> list[Reading]:
+        """能上托盘的设备：**真的在线且读到了电量**。
+
+        只有接收器在、设备本身没连上（level=None）时不上托盘，
+        否则会一直挂一个 “--” 的图标。
+        """
         tray_cfg = self._cfg.get("tray", {})
         include_bt = bool(tray_cfg.get("include_bluetooth", False))
         out = []
         for r in self._readings:
-            if not r.online:
+            if not r.online or r.level is None:
                 continue
             info = r.info
             is_bt = bool(info and info.source == "bluetooth")
@@ -88,6 +111,8 @@ class SystemTray(QObject):
         return text
 
     def _make_menu(self, title: Optional[str]) -> QMenu:
+        from device_battery.core import config as cfgmod
+
         menu = QMenu()
         if title:
             act = QAction(title, menu)
@@ -96,6 +121,21 @@ class SystemTray(QObject):
             menu.addSeparator()
         menu.addAction("打开主界面", self.open_ui.emit)
         menu.addAction("立即刷新", self.refresh_now.emit)
+
+        # 图标形态：数字图标 / 环形电量 / 仅圆环 / 纯图标
+        mode_menu = menu.addMenu("图标形态")
+        group = QActionGroup(mode_menu)
+        group.setExclusive(True)
+        current = self._cfg.get("tray", {}).get("mode", "number")
+        for value, label in cfgmod.TRAY_MODE_CHOICES:
+            action = QAction(label, mode_menu)
+            action.setCheckable(True)
+            action.setChecked(value == current)
+            action.triggered.connect(
+                lambda _checked=False, v=value: self.tray_mode_changed.emit(v))
+            group.addAction(action)
+            mode_menu.addAction(action)
+
         menu.addAction("设置…", self.open_settings.emit)
         menu.addSeparator()
         menu.addAction("退出", self.quit_app.emit)
@@ -107,7 +147,6 @@ class SystemTray(QObject):
             icon = QSystemTrayIcon(self)
             icon.setContextMenu(menu)
             icon.activated.connect(self._on_activated)
-            icon.setVisible(True)
             self._icons[slot] = icon
         return icon
 
@@ -144,6 +183,7 @@ class SystemTray(QObject):
                 icon = self._ensure_icon(slot, menu)
                 icon.setIcon(icon_render.render(mode, None, ""))
                 icon.setToolTip("未检测到设备")
+                icon.setVisible(True)      # 先设图标再显示，否则 Qt 会报 “No Icon set”
                 continue
             info = reading.info
             name = info.name if info else reading.key
@@ -152,6 +192,7 @@ class SystemTray(QObject):
             icon = self._ensure_icon(slot, menu)
             icon.setIcon(icon_render.render(mode, reading.level, kind))
             icon.setToolTip(self._full_tooltip(slot, reading, devices))
+            icon.setVisible(True)
             if self._log:
                 self._log(f"托盘图标 [{slot}] 形态={mode} 电量={reading.level} "
                           f"提示={name}")

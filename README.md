@@ -5,14 +5,36 @@ Windows 上读取无线外设与蓝牙设备电量的托盘小工具：**PyQt-Fl
 
 ## 功能
 
-- **设备卡片界面**：设备名、来源与型号、VID:PID 或蓝牙地址、电量（大号数字 + 进度条）、状态、更新时间。
-- **深浅色 + 跟随系统**：Fluent 主题，可在设置里切换。
+- **设备卡片（只留必要信息）**：设备图标、设备名、状态（充电中 / 放电中 / 连接方式）、电量。
+  - 电量显示方式可切：**环形电量（环内百分比）**，或**进度条 + 百分比**
+    （进度条在卡片底部通栏，百分比在右侧）；
+  - 顶部有**立即刷新**按钮，想马上读一次不用等定时器。
+- **只显示真正连上的设备**：
+  - 2.4G：只插着接收器、设备没开机时不会挂空卡片；
+  - 蓝牙：Windows 会把「已配对」设备的电量属性一直留着（缓存值），
+    所以这里额外用 `bthprops` 的 `fConnected` 判断连接状态，
+    **已配对但没连上的设备不显示**；
+  - 需要的话可在设置里打开「显示未检测到的设备」查看占位卡。
+- **高 DPI 适配**：声明每屏 DPI 感知并打开 Qt 缩放，2K / 4K 屏幕上跟随系统缩放比例，不再又小又糊。
+- **字体可换**：默认加载 `assets/fonts` 里的 **MiSans**；界面字体与托盘数字字体可以分别设置，
+  也能「加载字体文件…」用任意 ttf/otf。
+- **深浅色**：标题栏左侧（最小化按钮左边）有**一键切换按钮**，也可以在设置里选跟随系统。
+- **电量配色可调**：电量低于「橙黄色阈值」（默认 30%）时环 / 数字转橙黄，
+  低于「红色阈值」（默认 20%）转红，其余为绿；两个阈值都在设置 → 外观里改，
+  卡片、环形、进度条、托盘图标一起生效。
 - **托盘常驻**：
-  - 图标形态可切：**数字图标**（默认）/ **环形电量** / **纯图标**；
+  - 图标形态可切：**数字图标**（默认）/ **环形电量** / **仅圆环** / **纯图标**，
+    右键菜单「图标形态」里可以直接切换；
+  - 环形电量的缺口是**透明**的（不再有深色底圈），数字尽量放大；
   - 多设备时**每个设备一个托盘图标**（可关）；
   - 悬停提示可关；左键单击 = 立即刷新，双击 = 打开主界面，右键 = 菜单。
-- **低电量提醒**：Windows 通知 + 播放提示音（默认 `assets/notification-2.mp3`，可自选）；
+- **低电量提醒**：只走 **Windows 系统通知**（托盘气泡 NIIF_INFO：info 图标 + 标题 + 内容，
+  会进通知中心）+ 提示音（默认 `assets/notification-2.mp3`，可自选）；
   **每个设备可以单独设 启用开关 / 阈值 / 提示音**，并各自有冷却时间。
+- **通知身份**：第一次发通知时会在开始菜单放一个带 AUMID 的快捷方式，
+  这样「设置 → 系统 → 通知」里能看到「设备电量」并能单独开关它（删掉该快捷方式即可注销）。
+- **通知文案与测试**：标题 / 正文是可编辑模板，支持魔法变量（`{name}` `{level_pct}`
+  `{status}` `{time}` `{min_name}` …），设置页里能**直接发送一条测试通知**看效果。
 - **调试页**：枚举 HID 接口、转储 Feature Report、监听原始报文。
 
 ## 环境与安装
@@ -43,6 +65,26 @@ uv run python -m device_battery --debug        # 输出调试日志
 
 也可以直接用控制台脚本：`uv run device-battery`。
 
+## 打包成 exe
+
+```bash
+uv run python build_exe.py             # 单文件：dist/设备电量.exe（默认）
+uv run python build_exe.py --onedir    # 目录版：dist/设备电量/设备电量.exe（启动更快）
+uv run python build_exe.py --clean     # 打包前清掉 build/ 与 dist/
+uv run python build_exe.py --console   # 带控制台，方便看报错
+```
+
+- 图标用 `assets/logo.ico`：既是 **exe 的内嵌图标**，也是**窗口 / 任务栏图标**；
+  托盘图标仍由程序按电量实时绘制，不受影响；
+- **只打包运行时真正用到的资源**（白名单）：
+  `assets/fonts/*.ttf`（MiSans）、`assets/*.mp3`（提示音）、`assets/logo.ico`（图标）；
+  其余素材（`logo.png`、`logo.svg`、`键鼠.png`、设计稿 PNG…）不会进 exe，
+  打包时会把「已打包 / 已跳过」的文件清单打印出来；
+- `config.json` **不打进去**，首次运行生成在 **exe 同目录**（`paths.py` 会区分
+  「可写根 = exe 目录」和「只读资源根 = 解包目录」）；
+- 打包后开机自启、通知身份的快捷方式会自动指向 exe 本身（不再是 `pythonw -m device_battery`）；
+- 需要 PyInstaller，脚本会自动安装（优先 `pip`，其次 `uv pip`）。
+
 ## 支持的设备
 
 | 设备 | 识别方式 | 读取方式 |
@@ -64,31 +106,58 @@ uv run python -m device_battery --debug        # 输出调试日志
 ```
 device_battery/
 ├── __main__.py          入口（命令行 + 单实例 + 生命周期）
-├── core/                路径 / 配置 / 开机自启 / 单实例
+├── core/                路径 / 配置 / 高 DPI / 字体 / 开机自启 / 单实例
 ├── hid/                 hid_win.py（纯 ctypes HID 层）+ strategies.py（通用电量策略）
 ├── devices/             设备抽象：base.py + 各来源实现
 │   ├── inphic_in9.py    英菲克 IN9
 │   ├── atk_vxe.py       ATK / VXE
 │   ├── darkrim.py       DARKRIM 耳机
 │   └── bluetooth.py     蓝牙设备（0..N 个，按地址去重）
-├── ui/                  Fluent 界面（主窗口 / 卡片 / 设置页 / 调试页 / 主题）
+├── ui/                  Fluent 界面（主窗口 / 卡片 / 设置页 / 调试页 / 主题 / 自绘控件）
 ├── tray/                托盘图标渲染、托盘管理、读取调度
-└── notify/              Windows 通知、提示音、按设备的预警状态机
+└── notify/              Windows 通知、提示音、通知模板、按设备的预警状态机
 ```
 
 设备抽象是「一个来源（Provider）枚举 0..N 个设备」——因为蓝牙设备是动态增删的。
 主程序只用 `devices.scan_all()` 取全部设备读数，不关心具体来源怎么通信。
 新增设备只需写一个 `devices/xxx.py` 并在 `devices/__init__.py` 里登记。
 
+界面只显示「在线且读到电量」的设备；`Reading.online` 表示**设备真的在回应**，
+不是「接收器插着」。例如 DARKRIM 耳机没开机时 dongle 仍然枚举得到，
+但读不到电量，此时该来源返回 `online=False`，主界面和托盘都不会挂空图标。
+
+蓝牙更麻烦一点：Windows 对「已配对」的设备会一直保留电量属性（旧的缓存值），
+所以 `devices/bluetooth.py` 另外调用 `bthprops` 的 `BluetoothFindFirstDevice`
+读取 `fConnected`，只把**当前真的连着**的设备报上来。
+
 ## 设置项
 
-`config.json`（与旧版 `tray_config.json` 自动迁移）：
+`config.json`（与旧版 `tray_config.json` 自动迁移，坏值会回退默认值）：
 
 - `interval` 刷新间隔、`autostart` 开机自启、`theme` 主题、`quit_on_close` 关窗口是否退出、
   `show_absent_devices` 是否显示未检测到的设备；
-- `tray.*` 图标形态 / 多图标 / 悬停提示 / 蓝牙是否上托盘；
-- `notify.*` 总开关、全局阈值、提示音、音量、冷却时间；
+- `ui.font` 界面字体（默认 `MiSans`，空字符串 = 系统默认）、
+  `ui.battery_style` 主界面电量显示（`ring` 环形内嵌百分比 / `bar` 进度条）；
+- `colors.orange_at` / `colors.red_at` 变色阈值（默认 30 / 20，会自动纠正成 红 < 橙）；
+- `fonts.extra_files` 用户「加载字体文件…」加入的字体路径（启动时自动注册）；
+- `tray.*` 图标形态（`number` / `ring` / `ring_only` / `icon`）/ 托盘字体 / 多图标 / 悬停提示 / 蓝牙是否上托盘；
+- `notify.*` 总开关、全局阈值、提示音、音量、冷却时间、
+  通知文案 `title_template` / `body_template`；
 - `notify.overrides` **每设备覆盖**（如 `{"inphic:in9": {"threshold": 30}}`）。
+
+### 通知模板的魔法变量
+
+| 变量 | 含义 | 变量 | 含义 |
+|---|---|---|---|
+| `{name}` | 设备名 | `{level}` | 电量数字（不含 %） |
+| `{level_pct}` | 电量带 % | `{status}` | 充电中 / 放电中 / 充电状态未知 |
+| `{charging}` | 充电 / 未充电 / 未知 | `{kind}` | 鼠标 / 键盘 / 耳机 / 手柄 |
+| `{source}` | 数据来源 | `{transport}` | 2.4G / USB / Bluetooth |
+| `{vid_pid}` | VID:PID 或蓝牙地址 | `{threshold}` | 该设备的低电量阈值 |
+| `{time}` / `{date}` | 当前时间 / 日期 | `{count}` | 当前设备数 |
+| `{min_name}` / `{min_level}` | 电量最低的设备名 / 电量 | `{app}` | 程序名 |
+
+写错的变量不会被吞掉，而是原样显示，设置页也会提示「认不出的变量」。
 
 ## 约定
 

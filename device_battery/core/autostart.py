@@ -28,6 +28,12 @@ STARTUP_APPROVED_FOLDER = (r"Software\Microsoft\Windows\CurrentVersion"
 LEGACY_RUN_VALUE = "DeviceBatteryTray"
 
 MODULE_ARGS = "-m device_battery --minimized"
+FROZEN_ARGS = "--minimized"
+
+
+def is_frozen() -> bool:
+    """是否是 PyInstaller 打出来的 exe。"""
+    return bool(getattr(sys, "frozen", False))
 
 
 def pythonw_path() -> str:
@@ -37,8 +43,20 @@ def pythonw_path() -> str:
     return cand if os.path.exists(cand) else exe
 
 
+def launcher_target() -> str:
+    """快捷方式要指向的可执行文件：打包后就是 exe 自己。"""
+    if is_frozen():
+        return str(os.path.abspath(sys.executable))
+    return pythonw_path()
+
+
+def launcher_arguments() -> str:
+    """快捷方式参数：打包后不需要 -m device_battery。"""
+    return FROZEN_ARGS if is_frozen() else MODULE_ARGS
+
+
 def autostart_command() -> str:
-    return f'"{pythonw_path()}" {MODULE_ARGS}'
+    return f'"{launcher_target()}" {launcher_arguments()}'
 
 
 def startup_lnk() -> str:
@@ -124,10 +142,11 @@ def set_autostart(enabled: bool) -> bool:
     """开关开机自启。"""
     if enabled:
         ok = win_shell.create_shortcut(
-            startup_lnk(), pythonw_path(),
-            arguments=MODULE_ARGS,
+            startup_lnk(), launcher_target(),
+            arguments=launcher_arguments(),
             workdir=str(BASE_DIR),
-            description="设备电量托盘：常驻显示设备电量")
+            description="设备电量托盘：常驻显示设备电量",
+            icon=launcher_target())
         _set_startup_approved(True)
     else:
         _clear_startup_approved()

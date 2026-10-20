@@ -5,7 +5,9 @@ from __future__ import annotations
 
 from qfluentwidgets import Theme, setTheme
 
-THEME_CHOICES = [("auto", "跟随系统"), ("light", "浅色"), ("dark", "深色")]
+from device_battery.core.config import THEME_CHOICES   # 选项只有一份定义
+
+__all__ = ["THEME_CHOICES", "apply_theme"]
 
 
 def apply_theme(name: str) -> None:

@@ -203,7 +203,6 @@ def read_info(iface: Optional[hw.HidInterface] = None,
                     if t == TLV_BATTERY and len(v) >= 1:
                         info.battery_raw = v[0]
                         info.battery = v[0] if v[0] <= 100 else None
-                        info.online = True
                         info.raw_tlvs.append((t, v.hex(" ")))
             # 再问设备名、固件、地址、状态
             for tlv in (TLV_NAME, TLV_FW_DONGLE, TLV_FW_HEADSET, 0x0B, 0x06, 0x09):
@@ -221,10 +220,19 @@ def read_info(iface: Optional[hw.HidInterface] = None,
                             info.status_code = v[0]
                         if t not in (0x03, 0x14):
                             info.raw_tlvs.append((t, v.hex(" ") if v else "-"))
-            info.online = True
-            info.detail = (f"设备={info.name or '?'} 固件(dongle/耳机)="
-                           f"{info.dongle_firmware or '?'}/{info.headset_firmware or '?'} "
-                           f"状态码={info.status_code}")
+            # 只有真的拿到耳机上报的电量，才算「耳机连上了」。
+            # 不能因为「dongle 插着、回了别的报文」就当成在线 —— 那样耳机没开机
+            # 时界面里也会一直挂着一张设备卡。
+            if info.battery_raw is None:
+                info.online = False
+                info.detail = ("dongle 在，但耳机没有上报电量"
+                               "（请确认耳机已开机并连上）")
+            else:
+                info.online = True
+                info.detail = (f"设备={info.name or '?'} 固件(dongle/耳机)="
+                               f"{info.dongle_firmware or '?'}/"
+                               f"{info.headset_firmware or '?'} "
+                               f"状态码={info.status_code}")
     except Exception as e:
         info.detail = f"读取失败：{e}"
     return info

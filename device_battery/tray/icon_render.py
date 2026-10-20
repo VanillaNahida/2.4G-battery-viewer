@@ -2,12 +2,12 @@
 """icon_render.py —— 用 QPainter 画托盘图标
 
 三种形态（用户可在设置里选）：
-    number  电量数字直接画在图标上
-    ring    圆环进度 + 环内数字
+    number  电量数字直接画在图标上（数字尽量占满图标）
+    ring    环形进度 + 环内数字；**没走到的部分是透明的**，不画深色底圈
     icon    只画设备图形，不画数字
 
 颜色按电量分级：>=60 绿 / 30-59 黄 / <30 红（与界面一致）。
-结果按 (mode, level, kind) 缓存，避免重复绘制。
+结果按 (mode, level, kind, font) 缓存，避免重复绘制。
 """
 
 from __future__ import annotations
@@ -15,30 +15,53 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt5.QtCore import QRectF, Qt
-from PyQt5.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
+from PyQt5.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 
 from device_battery.devices import (KIND_GAMEPAD, KIND_HEADSET,
                                     KIND_KEYBOARD, KIND_MOUSE)
 
-SIZES = (16, 24, 32, 48, 64, 128)
+from ..ui.paint import contrast_outline, draw_centered_text, fit_font
 
-COLOR_GOOD = "#5DDC8A"
-COLOR_MID = "#F5C451"
-COLOR_LOW = "#FF6B6B"
+# 覆盖 Windows 各种 DPI 下托盘实际请求的尺寸（150% 取 24、200% 取 32）
+SIZES = (16, 20, 24, 28, 32, 40, 48, 64, 96, 128, 256)
+
+COLOR_GOOD = "#5DDC8A"          # 正常：绿
+COLOR_MID = "#F5A623"           # 偏低：橙黄
+COLOR_LOW = "#FF5252"           # 很低：红
 COLOR_UNKNOWN = "#969BA4"
-OUTLINE = QColor(16, 17, 19, 200)
+
+_default_family = "Segoe UI"
+
+# 颜色阈值（设置里可改）：<= red_at 红，<= orange_at 橙黄，其余绿
+_orange_at = 30
+_red_at = 20
 
 _cache: dict[tuple, QIcon] = {}
+
+
+def set_level_thresholds(orange_at: int, red_at: int) -> None:
+    """设置「橙 / 红」阈值（低电量变色）。改了颜色，缓存要清掉重画。"""
+    global _orange_at, _red_at
+    red_at = min(max(1, int(red_at)), 99)
+    orange_at = min(max(red_at + 1, int(orange_at)), 100)
+    if (orange_at, red_at) == (_orange_at, _red_at):
+        return
+    _orange_at, _red_at = orange_at, red_at
+    clear_cache()
+
+
+def level_thresholds() -> tuple[int, int]:
+    return _orange_at, _red_at
 
 
 def level_color(level: Optional[int]) -> str:
     if level is None:
         return COLOR_UNKNOWN
-    if level >= 60:
-        return COLOR_GOOD
-    if level >= 30:
+    if level <= _red_at:
+        return COLOR_LOW
+    if level <= _orange_at:
         return COLOR_MID
-    return COLOR_LOW
+    return COLOR_GOOD
 
 
 def level_text(level: Optional[int]) -> str:
@@ -47,55 +70,66 @@ def level_text(level: Optional[int]) -> str:
     return str(level)
 
 
-def _draw_text(p: QPainter, size: int, text: str, color: QColor,
-               rect: QRectF = None) -> None:
-    """画描边文字（保证在浅色/深色任务栏上都看得清）。"""
-    area = rect or QRectF(0, 0, size, size)
-    font = QFont("Segoe UI")
-    font.setBold(True)
-    px = int(min(area.width() / max(len(text), 1) * 0.95, area.height() * 0.92))
-    font.setPixelSize(max(6, px))
-    p.setFont(font)
+def set_font_family(family: str) -> None:
+    """设置图标里数字用的字体（托盘字体可单独配置）。"""
+    global _default_family
+    family = (family or "").strip()
+    if not family or family == _default_family:
+        return
+    _default_family = family
+    clear_cache()
 
-    path = None
-    from PyQt5.QtGui import QPainterPath
-    path = QPainterPath()
-    path.addText(area.center().x() - px * len(text) * 0.3,
-                 area.center().y() + px * 0.35, font, text)
 
-    p.setPen(QPen(OUTLINE, max(1.0, size / 16.0)))
-    p.setBrush(Qt.NoBrush)
-    p.drawPath(path)
-    p.setPen(Qt.NoPen)
-    p.setBrush(color)
-    p.drawPath(path)
+def font_family() -> str:
+    return _default_family
+
+
+def _stroke(size: int) -> float:
+    return max(1.0, size / 15.0)
 
 
 def _paint_number(p: QPainter, size: int, level: Optional[int]) -> None:
-    _draw_text(p, size, level_text(level), QColor(level_color(level)))
-
-
-def _paint_ring(p: QPainter, size: int, level: Optional[int]) -> None:
+    """数字直接铺满图标（比按字数估算的做法大一大截）。"""
     color = QColor(level_color(level))
-    ring_w = max(2.0, size / 8.0)
-    margin = ring_w / 2.0 + max(1.0, size / 32.0)
+    rect = QRectF(size * 0.04, size * 0.02, size * 0.92, size * 0.96)
+    text = level_text(level)
+    font = fit_font(_default_family, text, rect.width(), rect.height() * 0.94)
+    outline = contrast_outline(color) if level is not None else None
+    draw_centered_text(p, rect, text, font, color, outline, _stroke(size))
+
+
+def _paint_ring(p: QPainter, size: int, level: Optional[int],
+                show_text: bool = True) -> None:
+    """环形进度：只画走过的弧，缺口保持透明；show_text=False 时只画环。"""
+    ring_w = max(1.5, size * 0.095)
+    margin = ring_w / 2.0 + max(0.5, size * 0.035)
     box = QRectF(margin, margin, size - 2 * margin, size - 2 * margin)
 
-    p.setPen(QPen(OUTLINE, ring_w + 1.0))
-    p.setBrush(Qt.NoBrush)
-    p.drawEllipse(box)
-    p.setPen(QPen(QColor(60, 64, 70, 220), ring_w))
-    p.drawEllipse(box)
-
-    if level is not None:
-        p.setPen(QPen(color, ring_w, Qt.SolidLine, Qt.RoundCap))
-        # Qt 角度：1/16 度，从 3 点方向逆时针；这里从 12 点顺时针画进度
+    color = QColor(level_color(level))
+    if level is None:
+        # 电量未知：一圈半透明灰环（不是深色实心圈）
+        unknown = QColor(color)
+        unknown.setAlpha(150)
+        p.setPen(QPen(unknown, ring_w))
+        p.setBrush(Qt.NoBrush)
+        p.drawEllipse(box)
+    else:
         span = int(-360 * 16 * max(0, min(100, level)) / 100.0)
+        p.setPen(QPen(color, ring_w, Qt.SolidLine, Qt.RoundCap))
+        p.setBrush(Qt.NoBrush)
         p.drawArc(box, 90 * 16, span)
 
-    inner = QRectF(margin + ring_w, margin + ring_w,
-                   size - 2 * (margin + ring_w), size - 2 * (margin + ring_w))
-    _draw_text(p, size, level_text(level), color, inner)
+    if not show_text:
+        return
+
+    inner = box.adjusted(ring_w, ring_w, -ring_w, -ring_w)
+    text = level_text(level)
+    # 三位数（100）按宽度收；一两位数字可以更高一点，但左右留出与环的间隙
+    height_factor = 0.86 if len(text) <= 2 else 0.80
+    font = fit_font(_default_family, text,
+                    inner.width() * 0.82, inner.height() * height_factor)
+    # 环里的数字不描边：缺口是透明的，描边反而会糊住环
+    draw_centered_text(p, inner, text, font, color)
 
 
 def _paint_icon(p: QPainter, size: int, kind: str) -> None:
@@ -142,7 +176,7 @@ def _paint_icon(p: QPainter, size: int, kind: str) -> None:
 
 def render(mode: str, level: Optional[int], kind: str = "") -> QIcon:
     """按形态生成托盘图标（带缓存）。"""
-    key = (mode, level, kind)
+    key = (mode, level, kind, _default_family)
     cached = _cache.get(key)
     if cached is not None:
         return cached
@@ -153,9 +187,12 @@ def render(mode: str, level: Optional[int], kind: str = "") -> QIcon:
         pix.fill(Qt.transparent)
         p = QPainter(pix)
         p.setRenderHint(QPainter.Antialiasing, True)
+        p.setRenderHint(QPainter.TextAntialiasing, True)
         try:
             if mode == "ring":
                 _paint_ring(p, size, level)
+            elif mode == "ring_only":
+                _paint_ring(p, size, level, show_text=False)
             elif mode == "icon":
                 _paint_icon(p, size, kind)
             else:
