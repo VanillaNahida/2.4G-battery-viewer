@@ -36,7 +36,9 @@ def _status_text(r: Reading) -> str:
         return "放电中"
     info = r.info
     if info is not None and info.transport:
-        return info.transport
+        # 单独一个 "2.4G" 看不出是什么意思；带上字段名，
+        # 手柄这种分不清有线/无线的设备会显示 "连接方式：2.4G/有线连接"。
+        return f"连接方式：{info.transport}"
     return ""
 
 

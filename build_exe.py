@@ -18,7 +18,10 @@
       - `assets/*.mp3`         提示音
       - `assets/logo.ico`      程序与窗口图标
     其余素材（logo.png、logo.svg、键鼠.png、设计稿 PNG…）一律不进 exe；
-  * `config.json` 不打进去——运行时会生成在 **exe 同目录**，方便改。
+  * `config.json` 不打进去——运行时会生成在 **exe 同目录**，方便改；
+  * 版本资源（Exe 属性 -> 详细信息里的文件说明 / 版权 / 版本号）来自
+    `pyinstaller_version.txt`，通过 `--version-file` 交给 PyInstaller；
+    版本号和 `pyproject.toml`、`device_battery.__version__` 不一致时会提醒。
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 DEFAULT_ICON = ROOT / "assets" / "logo.ico"
 DEFAULT_NAME = "设备电量"
+DEFAULT_VERSION_FILE = ROOT / "pyinstaller_version.txt"
 ENTRY = ROOT / "build" / "entry.py"
 
 ENTRY_SOURCE = '''# -*- coding: utf-8 -*-
@@ -116,6 +120,24 @@ def collect_assets() -> tuple[list[Path], list[Path]]:
     return keep, skip
 
 
+def check_version_consistency(version_file: Path) -> None:
+    """版本文件里的 filevers 与代码里的 __version__ 不一致时提醒（不阻断）。"""
+    import re
+
+    try:
+        text = version_file.read_text(encoding="utf-8")
+        code = (ROOT / "device_battery" / "__init__.py").read_text(encoding="utf-8")
+    except OSError:
+        return
+    in_file = re.search(r"filevers\s*=\s*\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)", text)
+    in_code = re.search(r'__version__\s*=\s*"([\d.]+)"', code)
+    if in_file and in_code:
+        file_ver = ".".join(in_file.groups())
+        if file_ver != in_code.group(1):
+            log(f"提醒：{version_file.name} 里的版本是 {file_ver}，"
+                f"而 __version__ 是 {in_code.group(1)}，两处不一致")
+
+
 def write_entry() -> Path:
     ENTRY.parent.mkdir(parents=True, exist_ok=True)
     ENTRY.write_text(ENTRY_SOURCE, encoding="utf-8")
@@ -131,6 +153,18 @@ def build(args: argparse.Namespace) -> int:
     if not (ROOT / "assets").is_dir():
         log(f"找不到资源目录：{ROOT / 'assets'}")
         return 2
+
+    version_file: Path | None = None
+    if args.version_file:
+        version_file = Path(args.version_file).resolve()
+        if version_file.is_file():
+            check_version_consistency(version_file)
+            log(f"版本资源：{version_file}")
+        else:
+            log(f"找不到版本信息文件：{version_file}（本次不带版本资源打包）")
+            version_file = None
+    else:
+        log("未指定版本资源文件，本次不带版本资源打包")
 
     keep, skip = collect_assets()
     if not keep:
@@ -165,6 +199,8 @@ def build(args: argparse.Namespace) -> int:
         "--workpath", str(ROOT / "build"),
         "--specpath", str(ROOT / "build"),
     ]
+    if version_file is not None and sys.platform == "win32":
+        cmd += ["--version-file", str(version_file)]
     cmd += ["--onefile"] if args.onefile else ["--onedir"]
     cmd += ["--console"] if args.console else ["--windowed"]
     if args.clean:
@@ -216,6 +252,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--name", default=DEFAULT_NAME, help="exe 名字")
     parser.add_argument("--icon", default=str(DEFAULT_ICON),
                         help="exe / 窗口图标（.ico）")
+    parser.add_argument("--version-file", default=str(DEFAULT_VERSION_FILE),
+                        help="exe 版本资源（文件说明 / 版权 / 版本号），"
+                             "传空字符串则不使用")
     parser.add_argument("--no-install", action="store_true",
                         help="缺少 PyInstaller 时不自动安装")
     args = parser.parse_args(argv)

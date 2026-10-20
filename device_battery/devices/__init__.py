@@ -14,6 +14,7 @@ from .atk_vxe import AtkVxeProvider
 from .base import (DeviceInfo, DeviceProvider, Reading, charging_text,
                     KIND_GAMEPAD, KIND_HEADSET, KIND_KEYBOARD, KIND_MOUSE,
                     KIND_OTHER)
+from .bbw_lingyun import BbwLingyunProvider
 from .bluetooth import BluetoothProvider
 from .darkrim import DarkrimProvider
 from .inphic_in9 import InphicProvider
@@ -25,6 +26,7 @@ def providers() -> list[DeviceProvider]:
         InphicProvider(),      # 英菲克 IN9（2.4G）
         AtkVxeProvider(),      # ATK / VXE 无线鼠标（2.4G）
         DarkrimProvider(),     # DARKRIM 耳机（2.4G dongle）
+        BbwLingyunProvider(),  # 墨将凌云 手柄（2.4G）
         BluetoothProvider(),   # 蓝牙：耳机 / 键鼠 / 手柄（0..N 个）
     ]
 

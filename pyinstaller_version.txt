@@ -1,8 +1,12 @@
-﻿# UTF-8
+# UTF-8
+# PyInstaller 版本资源：Exe 属性 -> 详细信息里的版本/版权信息
+# 由 build_exe.py 通过 --version-file 传给 PyInstaller。
+# 改版本号时，pyproject.toml 的 version 与 device_battery/__init__.py 的 __version__
+# 也要一起改（build_exe.py 会检查并提示不一致）。
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 5, 3, 0),
-    prodvers=(1, 5, 3, 0),
+    filevers=(2, 0, 0, 0),
+    prodvers=(2, 0, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -14,18 +18,18 @@ VSVersionInfo(
     StringFileInfo(
       [
         StringTable(
-          '040904B0',
+          '080404B0',
           [StringStruct('CompanyName', 'VanillaNahida'),
-           StringStruct('FileDescription', 'QQ表情包导出工具'),
-           StringStruct('FileVersion', '1.5.3.0'),
-           StringStruct('InternalName', 'QQFavoriteExtract'),
-           StringStruct('LegalCopyright', 'VanillaNahida'),
-           StringStruct('OriginalFilename', 'QQFavoriteExtract.exe'),
-           StringStruct('ProductName', 'QQFavoriteExtract'),
-           StringStruct('ProductVersion', '1.5.3.0')])
+           StringStruct('FileDescription', '设备电量（无线外设电量监视器）'),
+           StringStruct('FileVersion', '2.0.0.0'),
+           StringStruct('InternalName', 'DeviceBatteryMonitor'),
+           StringStruct('LegalCopyright', 'Copyright (C) VanillaNahida. All rights reserved.'),
+           StringStruct('OriginalFilename', '设备电量.exe'),
+           StringStruct('ProductName', '设备电量'),
+           StringStruct('ProductVersion', '2.0.0.0')])
       ]),
-    # 语言映射：0x0409=英语(美国)，0x04B0=1200(Unicode)，与上方 StringTable '040904B0' 对应
-    # 缺少此块时资源管理器“详细信息”页无法关联字符串，版权等字段会显示为空白
-    VarFileInfo([VarStruct('Translation', [0x0409, 0x04B0])])
+    # 语言映射：0x0804=简体中文，0x04B0=1200(Unicode)，与上方 StringTable '080404B0' 对应
+    # 缺少此块时资源管理器"详细信息"页无法关联字符串，版权等字段会显示为空白
+    VarFileInfo([VarStruct('Translation', [0x0804, 0x04B0])])
   ]
 )
