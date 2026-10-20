@@ -1,0 +1,29 @@
+# Python 缓存（字节码里会嵌入本机绝对路径）
+__pycache__/
+*.pyc
+*.pyo
+
+# uv / 打包产物
+.venv/
+dist/
+build/
+*.egg-info/
+
+# 运行时产生的文件
+tray_pid.txt
+tray_debug.log
+_dbg*.txt
+_hidcap.log
+
+# 个人设置（刷新间隔 / 开关 / 托盘形态 / 预警阈值）
+config.json
+tray_config.json
+tray_config.json.bak
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+.trae/

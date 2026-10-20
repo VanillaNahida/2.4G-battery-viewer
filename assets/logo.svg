@@ -1,0 +1,92 @@
+
+<svg xmlns="http://www.w3.org/2000/svg" width="411" height="411" viewBox="0 0 411 411">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f7f8fa"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5ceca1"/>
+      <stop offset="100%" stop-color="#27d889"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#10294e" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="411" height="411" rx="12" fill="url(#bg)"/>
+
+  <!-- Clock outline -->
+  <g fill="none" stroke="#142f59" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M160 244
+             C145 249 128 250 114 243
+             C91 232 76 210 76 184
+             L80 139
+             C83 97 114 65 151 61
+             C190 57 218 83 223 128"/>
+    <path d="M151 91 L150 128"/>
+  </g>
+
+  <!-- Battery outer shell -->
+  <g filter="url(#shadow)">
+    <rect x="175" y="149" width="142" height="96" rx="22"
+          fill="#ffffff" stroke="#142f59" stroke-width="10"/>
+    <path d="M318 174 H324 Q327 174 327 181 V212 Q327 219 320 219 H316"
+          fill="#142f59" stroke="#142f59" stroke-width="8"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Battery terminals / charge bars -->
+  <g fill="url(#green)">
+    <rect x="195" y="167" width="28" height="57" rx="8"/>
+    <rect x="230" y="167" width="28" height="57" rx="8"/>
+    <rect x="265" y="167" width="28" height="57" rx="8"/>
+  </g>
+
+  <!-- Notification popup -->
+  <g filter="url(#shadow)">
+    <path d="M231 46
+             H316
+             Q330 46 330 60
+             V104
+             Q330 118 316 118
+             H282
+             L263 135
+             L266 118
+             H231
+             Q217 118 217 104
+             V60
+             Q217 46 231 46 Z"
+          fill="#ffffff" stroke="#247cf0" stroke-width="7"
+          stroke-linejoin="round"/>
+
+    <!-- Bell clapper -->
+    <path d="M269 105
+             C265 105 262 102 262 98
+             H276
+             C276 102 273 105 269 105 Z"
+          fill="#247cf0"/>
+
+    <!-- Notification bell -->
+    <g fill="none" stroke="#247cf0" stroke-width="6"
+       stroke-linecap="round" stroke-linejoin="round">
+      <path d="M251 91
+               C255 87 256 82 256 76
+               C256 67 261 61 269 61
+               C277 61 282 67 282 76
+               C282 82 283 87 287 91
+               Z"/>
+      <path d="M265 57 C265 53 273 53 273 57"/>
+    </g>
+
+    <!-- Small notification indicator -->
+    <circle cx="305" cy="58" r="7" fill="#31dc91"/>
+  </g>
+
+  <!-- Caption -->
+  <text x="205.5" y="309"
+        font-family="Arial, 'Noto Sans SC', sans-serif"
+        font-size="27" font-weight="400"
+        fill="#737780" text-anchor="middle">SVG 矢量版</text>
+</svg>

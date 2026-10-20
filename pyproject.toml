@@ -1,0 +1,23 @@
+[project]
+name = "device-battery"
+version = "2.0.0"
+description = "Windows 设备电量监视器：2.4G 无线外设 + 蓝牙设备电量，托盘常驻与低电量提醒"
+requires-python = ">=3.10"
+dependencies = [
+    "PyQt5>=5.15.9",
+    # PyQt5-Qt5 5.15.3 起不再提供 Windows wheel（只剩 5.15.2 有 win_amd64），
+    # 这里钉住以保证在 Windows 上能装上 Qt 运行库。
+    "PyQt5-Qt5==5.15.2",
+    "PyQt-Fluent-Widgets>=1.7.0",
+    "winotify>=1.0.0",
+]
+
+[project.scripts]
+device-battery = "device_battery.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["device_battery"]
